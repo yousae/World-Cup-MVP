@@ -135,4 +135,4 @@ This is a genuinely strong result: a real, falsifiable, no-lookahead prediction 
 
 Python (pandas, numpy, scipy.optimize), maximum-likelihood parameter fitting, no-lookahead backtesting methodology, bootstrap significance testing, git/GitHub collaborative workflow (branches, pull requests, code review), SQLite querying, live API integration (Polymarket/Kalshi), Streamlit/Plotly dashboard development.
 
-** PR link for my personal contributions (yousae): https://github.com/novaa1351/World-Cup-MVP/pulls?q=is%3Apr+is%3Aclosed **
+**PR link for my personal contributions (yousae): https://github.com/novaa1351/World-Cup-MVP/pulls?q=is%3Apr+is%3Aclosed**

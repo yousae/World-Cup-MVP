@@ -1,5 +1,7 @@
 # ⚽ World Cup Quant Dashboard
 
+See **[WRITEUP.md](./WRITEUP.md)** for the full write-up: finding and fixing a real cross-confederation calibration bias in a live Elo model, validating it across six historical World Cups, and using it to correctly predict the 2026 champion in real time.
+
 A portfolio project that pulls live prediction-market odds (Polymarket + Kalshi) for the 2026 World Cup, generates independent model probabilities from historical match data, and surfaces where the two disagree (value edges and theoretical cross-platform arbitrage) all with backtesting, an interactive Streamlit dashboard, and a Discord webhooks for live alerts.
 
 > **Educational tool. Does not place trades and is not financial or betting advice.** Reads public market data only.

@@ -20,7 +20,7 @@ This is a full quantitative research and trading-signal dashboard built around t
 
 ## Summary of my contribution
 
-During the 2026 World Cup I found and fixed a real, measurable bias in the project's Elo model: it was consistently overrating CONCACAF teams, Mexico in particular, against UEFA and CONMEBOL opponents. I built a fitted, data-driven correction for it, validated it across six historical World Cups (2002 to 2022) with bootstrap significance testing, then used the corrected model to predict the entire 2026 knockout bracket in real time, with no lookahead and no mid-tournament adjustments. The model picked the actual champion (Spain) and got 77% of the 32 real knockout matches right.
+During the 2026 World Cup I found and fixed a real, measurable bias in the project's Elo model: it was consistently overrating CONCACAF teams, Mexico in particular, against UEFA and CONMEBOL opponents. I built a fitted, data-driven correction for it, validated it across six historical World Cups (2002 to 2022) with bootstrap significance testing, then used the corrected model to predict the entire 2026 knockout bracket in real time, with no lookahead and no mid-tournament adjustments. The model picked the actual champion (Spain) and got 81% of the 31 real knockout matches right.
 
 This document walks through the problem, the dead ends, the fix, and the evidence for and against it, including the parts that didn't work out as cleanly as I'd have liked.
 
@@ -112,8 +112,9 @@ Rather than force a comparison that wasn't valid, I documented it as a real limi
 Using the real 2026 Round of 32 draw as it actually happened, and letting the model's own predictions decide who advances at every round after that (no mid-bracket corrections using real results), I ran the model through the actual bracket tree, trained only on pre-tournament data:
 
 - Predicted champion: Spain. That's who actually won.
-- Knockout-stage accuracy: 26 of 32 matches correct (81%) in an earlier test run using the confirmed live matchups, 77% in the final version wired into the dashboard's bracket visualization (the small gap comes from final tuning of the goal-diff weight).
+- Knockout-stage accuracy: 25 of 31 matches correct (81%). A 32-team knockout bracket is 16+8+4+2+1 = 31 games, not 32, so "32 real knockout matches" in an earlier version of this section was off by one.
 - The misses were mostly close, near-toss-up matches and a few genuine upsets (Norway over Brazil, for one), not systematic failures.
+- This number moves slightly (it was 77% at one point, then 81% again after the section 14 fixes) because the function that computes it refits its goal-diff weight fresh from `download_results()`'s current data every time it runs, rather than from a value pinned once and frozen. That's a minor reproducibility gap worth knowing about: this metric isn't a fixed historical fact the way the section 6/7 backtest tables are, it can shift by a match or two if the underlying match data gets re-fetched. 25/31 is what it produces now, consistently, as of the section 14 cleanup.
 
 This is the result I'm proudest of: a real, falsifiable, no-lookahead prediction that could have been published before the final and checked against reality afterward, not a backtest built with the benefit of hindsight.
 

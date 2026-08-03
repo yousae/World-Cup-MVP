@@ -229,10 +229,12 @@ def build_wc_backtest_full(
     scale: float | None = None,
 ) -> pd.DataFrame:
     """Same as build_wc_backtest, but applies BOTH confederation offset AND
-    in-tournament goal-difference form. Both are fit with no lookahead:
-    confederation offset from pre-cutoff history, goal_diff_weight from this
-    tournament's own matches (using only goals scored strictly before each
-    match being predicted).
+    in-tournament goal-difference form. Confederation offset is fit from
+    pre-cutoff history. goal_diff_weight is fit from EVERY PRIOR World Cup
+    edition's own goal-diff-so-far/outcome pairs -- never from the target
+    tournament's own matches (see the note above the fitting call below for
+    why the original version leaked, and why this isn't just a lookahead
+    fix but a straight improvement).
     """
     from src.models.confederations import CONFEDERATION, fit_confederation_offsets
     from src.models.tournament_form import tournament_goal_diff_so_far, fit_goal_diff_weight
@@ -248,6 +250,11 @@ def build_wc_backtest_full(
     base = config.ELO_BASE
 
     offsets = fit_confederation_offsets(train, elo, CONFEDERATION)
+    confed_adjust = {}
+    for team in elo:
+        conf = CONFEDERATION.get(team)
+        if conf:
+            confed_adjust[team] = offsets.get(conf, 0.0)
 
     wc = all_matches[
         (all_matches["date"] >= cutoff)
@@ -258,8 +265,9 @@ def build_wc_backtest_full(
     if wc.empty:
         raise RuntimeError(f"No FIFA World Cup matches found for {year}.")
 
-    # First pass: build (home, away, scores, goal-diff-so-far) for every match,
-    # so we can fit goal_diff_weight against the whole tournament at once.
+    # Build (home, away, scores, goal-diff-so-far) for every match in the
+    # target tournament -- this is what the fitted weight gets APPLIED to,
+    # not what it's fit FROM.
     prep_rows = []
     for row in wc.itertuples(index=False):
         gd = tournament_goal_diff_so_far(wc, row.date)
@@ -271,15 +279,39 @@ def build_wc_backtest_full(
             "gd_away": gd.get(row.away_team, 0),
         })
 
-    confed_adjust = {}
-    for team in elo:
-        conf = CONFEDERATION.get(team)
-        if conf:
-            confed_adjust[team] = offsets.get(conf, 0.0)
+    # goal_diff_weight used to be fit on the target tournament's own full
+    # match set in one MLE pass -- meaning the weight applied to an early
+    # group-stage match was partly informed by outcomes of matches that
+    # happened AFTER it in the same tournament. Lookahead. It was also a
+    # bad idea independent of lookahead: one WC only has ~48-64 matches
+    # (many with gd=0 in each team's first game), nowhere near enough to
+    # pin down one continuous parameter reliably -- the leaky per-tournament
+    # fit swung from -1.97 to +7.96 across the 6 backtested years. Pooling
+    # every PRIOR WC edition's own goal-diff-so-far/outcome pairs (thousands
+    # of matches instead of dozens) gives a stable weight in the 14-17 range
+    # and performs comparably or slightly better on held-out Brier score.
+    prior_editions = all_matches[
+        (all_matches["tournament"] == "FIFA World Cup") & (all_matches["date"] < cutoff)
+    ].copy()
+    prior_editions["edition_year"] = prior_editions["date"].dt.year
 
-    weight = fit_goal_diff_weight(prep_rows, elo, confed_adjust)
+    prior_prep_rows = []
+    for _, edition in prior_editions.groupby("edition_year"):
+        for row in edition.itertuples(index=False):
+            if row.home_team not in elo or row.away_team not in elo:
+                continue
+            gd = tournament_goal_diff_so_far(edition, row.date)
+            prior_prep_rows.append({
+                "home": row.home_team, "away": row.away_team,
+                "home_score": int(row.home_score), "away_score": int(row.away_score),
+                "neutral": bool(row.neutral),
+                "gd_home": gd.get(row.home_team, 0),
+                "gd_away": gd.get(row.away_team, 0),
+            })
 
-    # Second pass: build final backtest rows using fitted weight
+    weight = fit_goal_diff_weight(prior_prep_rows, elo, confed_adjust) if prior_prep_rows else 0.0
+
+    # Second pass: build final backtest rows using the pre-fit weight
     rows = []
     for m in prep_rows:
         r_home = elo.get(m["home"], base) + confed_adjust.get(m["home"], 0.0) + weight * m["gd_home"]
@@ -316,6 +348,17 @@ def run_backtest(
 
     Bets YES whenever model_prob - market_prob >= edge_threshold.
     Returns summary stats and the per-bet ledger DataFrame.
+
+    CAVEAT: for the historical WC backtests (build_wc_backtest / _with_offset
+    / _full), market_prob is hardcoded to a flat 1/3 -- there's no archived
+    betting-odds data for 2002-2022 to compare against (see project spec
+    section 6 / WRITEUP.md section 9). The resulting roi/hit_rate/
+    final_bankroll are a staking-mechanics illustration against a synthetic
+    uniform baseline, not a measurement of real trading edge -- any
+    reasonably calibrated model clears a flat 1/3 prior by a wide margin.
+    Don't quote these numbers as if they were tested against real market
+    prices; brier_model vs brier_baseline (raw 2-way Elo) is the honest
+    comparison for that.
     """
     bank = bankroll
     ledger = []

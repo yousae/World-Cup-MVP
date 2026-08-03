@@ -162,6 +162,12 @@ def get_prediction(match_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+def get_all_predictions() -> list[dict]:
+    with _conn() as con:
+        rows = con.execute("SELECT * FROM predictions ORDER BY kickoff_utc").fetchall()
+    return [dict(r) for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
@@ -206,6 +212,16 @@ def compute_and_save_calibration() -> dict:
     Three-outcome Brier score: sum over outcomes of (p - actual)^2, normalised by
     n_matches (not n_outcomes) — comparable to single-outcome Brier on binary markets.
     Log-loss is per-match, targeting only the actual outcome.
+
+    Market-side scores are computed ONLY over matches that actually have all
+    three market probabilities logged. A NULL market prob used to silently
+    coerce to 0.0, which scored as a maximally wrong prediction (Brier
+    contribution of exactly 1.0 every time) rather than "no data" — with
+    live market capture never populating those columns during the 2026
+    tournament, every match was getting graded that way, making the market
+    look uniformly terrible instead of simply absent. brier_market /
+    logloss_market are None (not 0.0 or 1.0) when no settled match has
+    market data at all.
     """
     with _conn() as con:
         rows = con.execute("""
@@ -221,8 +237,10 @@ def compute_and_save_calibration() -> dict:
     if not rows:
         return {}
 
-    brier_model = brier_market = logloss_model = logloss_market = 0.0
+    brier_model = logloss_model = 0.0
+    brier_market = logloss_market = 0.0
     n = len(rows)
+    n_market = 0
     _OUTCOME_IDX = {"home": 0, "draw": 1, "away": 2}
 
     for row in rows:
@@ -230,20 +248,30 @@ def compute_and_save_calibration() -> dict:
         if actual_idx < 0:
             continue
         model_vec = (row["p_home_model"] or 0, row["p_draw_model"] or 0, row["p_away_model"] or 0)
-        market_vec = (row["p_home_market"] or 0, row["p_draw_market"] or 0, row["p_away_market"] or 0)
-        for i, (mp, mk) in enumerate(zip(model_vec, market_vec)):
+        has_market = all(
+            row[k] is not None for k in ("p_home_market", "p_draw_market", "p_away_market")
+        )
+
+        for i, mp in enumerate(model_vec):
             actual = 1.0 if i == actual_idx else 0.0
             brier_model += (mp - actual) ** 2
-            brier_market += (mk - actual) ** 2
         logloss_model += -math.log(max(model_vec[actual_idx], 1e-9))
-        logloss_market += -math.log(max(market_vec[actual_idx], 1e-9))
+
+        if has_market:
+            n_market += 1
+            market_vec = (row["p_home_market"], row["p_draw_market"], row["p_away_market"])
+            for i, mk in enumerate(market_vec):
+                actual = 1.0 if i == actual_idx else 0.0
+                brier_market += (mk - actual) ** 2
+            logloss_market += -math.log(max(market_vec[actual_idx], 1e-9))
 
     result = {
         "n_matches": n,
+        "n_market_matches": n_market,
         "brier_model": brier_model / n,
-        "brier_market": brier_market / n,
+        "brier_market": (brier_market / n_market) if n_market else None,
         "logloss_model": logloss_model / n,
-        "logloss_market": logloss_market / n,
+        "logloss_market": (logloss_market / n_market) if n_market else None,
     }
     with _conn() as con:
         con.execute(

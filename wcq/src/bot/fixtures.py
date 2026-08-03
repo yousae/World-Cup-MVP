@@ -31,6 +31,14 @@ SCHEDULE_PATH = Path(os.environ.get(
 
 _MATCH_DURATION = timedelta(hours=2, minutes=30)
 
+# Unresolved knockout slots, before the group stage decides who's actually
+# playing. The feed doesn't use "TBD" for these -- it uses group-position
+# codes like "1A" (winner of Group A), "2B" (runner-up of Group B), or
+# "3ABCDF" (best-third-place placeholder spanning several groups). A plain
+# "TBD" check misses all of these, which is how 56 predictions ended up
+# logged against fixtures where neither team was known yet.
+_UNRESOLVED_TEAM_RE = re.compile(r"^\d[A-Z]+$|^TBD|^To be announced$", re.I)
+
 # Fixturedownload.com UTC CSV feed (FIFA World Cup 2026)
 _FDL_URL = "https://fixturedownload.com/feed/json/fifa-world-cup-2026"
 _KICKOFFCLOCK_URL = "https://www.kickoffclock.com/downloads/world-cup-2026-schedule.json"
@@ -89,7 +97,7 @@ def _fixture_from_fdl_row(row: dict) -> dict | None:
     """Parse one row from the fixturedownload.com JSON feed."""
     home = _normalise_team(str(row.get("HomeTeam", "") or row.get("home_team", "")))
     away = _normalise_team(str(row.get("AwayTeam", "") or row.get("away_team", "")))
-    if not home or not away or home.startswith("TBD") or away.startswith("TBD"):
+    if not home or not away or _UNRESOLVED_TEAM_RE.match(home) or _UNRESOLVED_TEAM_RE.match(away):
         return None
 
     raw_date = str(

@@ -806,11 +806,16 @@ with tab_bt:
                 delta_color="normal",
                 help="Lower Brier score = better calibrated. Delta = how much we beat the naive 1/3-equal baseline.")
     col3.metric("Bets placed", bt.get("n_bets", 0))
-    col4.metric("Hit rate", f"{bt.get('hit_rate', 0):.1%}",
+    col4.metric("Hit rate (vs 1/3 baseline)", f"{bt.get('hit_rate', 0):.1%}",
                 help="Fraction of bets that won (edge ≥ 5 pp above 1/3 baseline)")
-    col5.metric("Final bankroll", f"${bt.get('final_bankroll', 1000):,.0f}",
+    col5.metric("Final bankroll (vs 1/3 baseline)", f"${bt.get('final_bankroll', 1000):,.0f}",
                 delta=f"{bt.get('roi', 0):+.1%} ROI",
-                help="Starting bankroll $1,000, fractional-Kelly staking vs 1/3 flat market")
+                help="Synthetic staking exercise, not a real trading result: bets are sized "
+                     "and settled against a flat 1/3 equal-odds baseline (archived betting "
+                     "odds aren't available for these historical WCs), not real market prices. "
+                     "Any reasonably calibrated model beats a uniform prior by a wide margin, "
+                     "so treat this ROI as an illustration of the staking mechanics, not "
+                     "evidence of a real edge.")
 
     st.divider()
 

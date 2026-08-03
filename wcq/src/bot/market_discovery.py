@@ -168,6 +168,7 @@ def _fetch_polymarket_wc_events() -> list[dict]:
         return cached
 
     events: list[dict] = []
+    n_raw = n_wrong_slug = n_filtered_title = n_no_draw_market = 0
     offset = 0
     while True:
         try:
@@ -189,22 +190,35 @@ def _fetch_polymarket_wc_events() -> list[dict]:
             break
 
         if not isinstance(page, list):
+            print(f"[market_discovery] Polymarket events response wasn't a list: {type(page).__name__}")
             break
         for ev in page:
+            n_raw += 1
             slug  = ev.get("slug", "") or ""
             title = ev.get("title", "") or ""
             if not slug.startswith("fifwc"):
+                n_wrong_slug += 1
                 continue
             # Keep only full-time W/D/W events
             if any(kw in title for kw in ("Halftime", "More Markets", "Spread", "Total")):
+                n_filtered_title += 1
                 continue
             if not any(m.get("slug", "").endswith("-draw") for m in ev.get("markets", [])):
+                n_no_draw_market += 1
                 continue
             events.append(ev)
 
         if len(page) < 100:
             break
         offset += 100
+
+    # This is the single most useful line for diagnosing "market columns are
+    # always null" after the fact -- it says exactly which filter ate the
+    # events, instead of a downstream caller silently getting None for
+    # every single fixture with no way to tell why.
+    print(f"[market_discovery] Polymarket WC events: {n_raw} fetched, {len(events)} usable "
+          f"(dropped: {n_wrong_slug} wrong slug, {n_filtered_title} halftime/spread/total, "
+          f"{n_no_draw_market} no 3-way draw market)")
 
     _cache_set("poly_wc_events", events)
     return events
@@ -236,13 +250,18 @@ def find_polymarket_match(
     home_words = {w for w in home.lower().split() if len(w) > 2}
     away_words = {w for w in away.lower().split() if len(w) > 2}
 
-    for ev in _fetch_polymarket_wc_events():
+    all_events = _fetch_polymarket_wc_events()
+    n_title_matched = 0
+    for ev in all_events:
         ev_title = ev.get("title", "") or ""
         # Match on event title e.g. "Mexico vs. South Africa" — contains both teams
         if not _teams_match(ev_title, home, away):
             continue
+        n_title_matched += 1
         end_date = ev.get("endDate") or ev.get("startDate")
         if not _kickoff_close_enough(end_date, kickoff_utc):
+            print(f"[market_discovery] {home} vs {away}: matched event '{ev_title}' but its "
+                  f"close time ({end_date}) is outside the {kickoff_utc} window")
             continue
 
         # Extract the Yes price from each of the 3 binary markets
@@ -254,7 +273,9 @@ def find_polymarket_match(
                 import json as _json
                 raw_prices = [float(p) for p in _json.loads(m.get("outcomePrices", "[]"))]
                 yes_price  = raw_prices[0] if raw_prices else None
-            except Exception:
+            except Exception as e:
+                print(f"[market_discovery] {home} vs {away}: couldn't parse outcomePrices "
+                      f"for market '{mslug}': {e}")
                 yes_price = None
             if yes_price is None:
                 continue
@@ -275,6 +296,9 @@ def find_polymarket_match(
             draw_price = max(0.0, 1.0 - home_price - away_price)
 
         if home_price is None or away_price is None:
+            print(f"[market_discovery] {home} vs {away}: matched event '{ev_title}' but "
+                  f"couldn't parse enough leg prices (home={home_price}, draw={draw_price}, "
+                  f"away={away_price})")
             continue  # couldn't parse enough prices
 
         result = {
@@ -290,6 +314,9 @@ def find_polymarket_match(
         _cache_set(key, result)
         return result
 
+    if n_title_matched == 0:
+        print(f"[market_discovery] {home} vs {away}: no event title matched out of "
+              f"{len(all_events)} usable WC events")
     _cache_set(key, {})
     return None
 

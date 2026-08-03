@@ -162,35 +162,68 @@ def _result_from_historical_csv(
 ) -> dict | None:
     """Check the martj42 historical results CSV for a completed match.
 
-    The CSV is typically updated within a few hours of full time.
-    Loads via the project's existing historical.load_results() function.
+    The CSV is typically updated within a few hours of full time. Re-fetches
+    via historical.download_results(force=True) so a stale, previously-cached
+    copy of the CSV doesn't hide a result that's actually already posted.
+
+    Team names are normalised through tournament._FIFA_TO_HIST before
+    matching, since fixturedownload.com (the bot's schedule source) and
+    martj42 (this CSV) disagree on 6 official names (Czechia/Czech Republic,
+    Bosnia-Herzegovina/Bosnia and Herzegovina, Türkiye/Turkey,
+    Côte d'Ivoire/Ivory Coast, Cabo Verde/Cape Verde, Congo DR/DR Congo) --
+    without this, matches involving those teams never matched on word
+    overlap alone (e.g. "czechia" never appears as a substring of
+    "czech republic"). Home/away order is also checked both ways, since WC
+    matches are neutral-venue and the two sources don't always agree on
+    which team is listed "home".
+
+    martj42 files each match under its LOCAL kickoff date, while
+    kickoff_utc here is a UTC timestamp -- for matches kicking off in the
+    evening at a US host city, that's already past midnight UTC, one
+    calendar day later than the CSV's date. Checking both kickoff_utc's
+    date and the day before catches this without needing real timezone
+    conversion per host city.
     """
-    date_str = kickoff_utc[:10]
+    from datetime import datetime, timedelta
+    ko_date = datetime.fromisoformat(kickoff_utc.replace("Z", "+00:00")).date()
+    candidate_dates = {str(ko_date), str(ko_date - timedelta(days=1))}
     try:
-        from src.data.historical import load_results
-        df = load_results(force_download=True)  # always re-fetch for post-match use
+        from src.data.historical import download_results
+        from src.models.tournament import _FIFA_TO_HIST
+        df = download_results(force=True)  # always re-fetch for post-match use
         if df is None or df.empty:
             return None
 
-        home_words = [w.lower() for w in home.split() if len(w) > 2]
-        away_words = [w.lower() for w in away.split() if len(w) > 2]
+        home_hist = _FIFA_TO_HIST.get(home, home)
+        away_hist = _FIFA_TO_HIST.get(away, away)
+        home_words = [w.lower() for w in home_hist.split() if len(w) > 2]
+        away_words = [w.lower() for w in away_hist.split() if len(w) > 2]
 
-        mask = df["date"].astype(str).str.startswith(date_str)
-        day_matches = df[mask]
+        date_col = df["date"].astype(str).str.slice(0, 10)
+        day_matches = df[date_col.isin(candidate_dates)]
 
         for _, row in day_matches.iterrows():
             ht = str(row.get("home_team", "")).lower()
             at = str(row.get("away_team", "")).lower()
-            if any(w in ht for w in home_words) and any(w in at for w in away_words):
-                hs = int(row.get("home_score", 0))
-                as_ = int(row.get("away_score", 0))
-                winner = "home" if hs > as_ else ("away" if as_ > hs else "draw")
-                return {
-                    "home_score": hs,
-                    "away_score": as_,
-                    "winner": winner,
-                    "source": "martj42",
-                }
+
+            same_order = any(w in ht for w in home_words) and any(w in at for w in away_words)
+            swapped_order = any(w in at for w in home_words) and any(w in ht for w in away_words)
+            if not (same_order or swapped_order):
+                continue
+
+            hs = int(row.get("home_score", 0))
+            as_ = int(row.get("away_score", 0))
+            if swapped_order and not same_order:
+                # The CSV's home/away is the reverse of our fixture's home/away.
+                hs, as_ = as_, hs
+
+            winner = "home" if hs > as_ else ("away" if as_ > hs else "draw")
+            return {
+                "home_score": hs,
+                "away_score": as_,
+                "winner": winner,
+                "source": "martj42",
+            }
     except Exception as e:
         print(f"[results] historical CSV: {e}")
     return None

@@ -291,15 +291,40 @@ def bracket_chart(
     ]
     max_prob = max(all_champ_probs) if all_champ_probs else 0.20
 
-    def fill_color(team: str, is_winner: bool) -> str:
+    def fill_rgb(team: str, is_winner: bool) -> tuple[int, int, int] | None:
+        """Winner fill as an (r, g, b) tuple, or None for losers (flat fill)."""
         if not is_winner:
-            return loser_fill
+            return None
         p = mc_survival.get(team, {}).get("champion", 0.0)
         frac = min(1.0, p / max(max_prob, 0.001))
-        r = int(grad_lo[0] + frac * (grad_hi[0] - grad_lo[0]))
-        g = int(grad_lo[1] + frac * (grad_hi[1] - grad_lo[1]))
-        b = int(grad_lo[2] + frac * (grad_hi[2] - grad_lo[2]))
-        return f"rgb({r},{g},{b})"
+        return (
+            int(grad_lo[0] + frac * (grad_hi[0] - grad_lo[0])),
+            int(grad_lo[1] + frac * (grad_hi[1] - grad_lo[1])),
+            int(grad_lo[2] + frac * (grad_hi[2] - grad_lo[2])),
+        )
+
+    def fill_color(team: str, is_winner: bool) -> str:
+        rgb = fill_rgb(team, is_winner)
+        return loser_fill if rgb is None else f"rgb({rgb[0]},{rgb[1]},{rgb[2]})"
+
+    def winner_text_color(team: str) -> str:
+        """Pick black or white text based on the actual fill luminance.
+
+        The winner fill is a gradient keyed to champion probability, so a
+        single fixed text colour cannot stay readable across it: the
+        strongest team (deepest fill) was rendering dark-blue-on-dark-blue
+        and its name became invisible in every box it appeared in. Uses the
+        WCAG relative-luminance formula and flips to white past the standard
+        0.5 threshold, which keeps contrast acceptable at both ends of the
+        ramp in light and dark mode.
+        """
+        rgb = fill_rgb(team, True)
+        if rgb is None:
+            return winner_txt
+        r, g, b = (c / 255.0 for c in rgb)
+        lin = [(c / 12.92) if c <= 0.03928 else (((c + 0.055) / 1.055) ** 2.4) for c in (r, g, b)]
+        luminance = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+        return "#FFFFFF" if luminance < 0.5 else "#0D47A1"
 
     # ── build figure ─────────────────────────────────────────────────────────
     shapes: list[dict] = []
@@ -319,7 +344,7 @@ def bracket_chart(
                 (tb, cy - TGAP - 2*BOX_H, cy - TGAP,             pb, win_b),
             ]:
                 champ_p = mc_survival.get(team, {}).get("champion", 0.0)
-                tc = winner_txt if is_win else loser_txt
+                tc = winner_text_color(team) if is_win else loser_txt
                 bc = winner_border if is_win else loser_border
                 bw = 1.5 if is_win else 0.8
 
@@ -347,13 +372,18 @@ def bracket_chart(
                     font=dict(size=8, color=tc),
                     xanchor="right", align="right",
                 ))
+                # Champion-probability badge sits centred between the team
+                # name (left-anchored) and the win % (right-anchored) rather
+                # than below the name -- the old fixed -0.18 y offset is in
+                # data coordinates while the font size is in points, so at
+                # smaller canvas sizes it drifted on top of the name.
                 if is_win and champ_p > 0:
                     annotations.append(dict(
-                        x=rx + 0.12, y=mid_y - 0.18,
+                        x=rx + BOX_W * 0.62, y=mid_y,
                         text=f"🏆 {champ_p:.1%}",
                         showarrow=False,
-                        font=dict(size=7, color=champ_badge_col),
-                        xanchor="left",
+                        font=dict(size=7, color=tc),
+                        xanchor="center",
                     ))
 
             if ri < len(ROUND_ORDER) - 1:

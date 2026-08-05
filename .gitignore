@@ -1,3 +1,27 @@
-/.DS_Store
-/wcq_skeleton.zip
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Secrets and local env
+.env
+.env.local
+
+# Tooling
 /.claude/
+
+# Local scratch
+/wcq_skeleton.zip
+
+# Cached data (re-downloaded by src/data/historical.py on first run)
+wcq/data/raw/*.csv
+wcq/data/market_cache.json

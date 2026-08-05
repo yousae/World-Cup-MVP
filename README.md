@@ -1,10 +1,31 @@
-# ⚽ World Cup Quant Dashboard
+# World Cup Quant Dashboard
 
-See **[WRITEUP.md](./WRITEUP.md)** for the full write-up: finding and fixing a real cross-confederation calibration bias in a live Elo model, validating it across six historical World Cups, and using it to correctly predict the 2026 champion in real time.
+An Elo-based forecasting model for the 2026 FIFA World Cup, with a Monte Carlo tournament simulator, a six-tournament walk-forward backtest, a live Discord bot, and a Streamlit dashboard.
 
-A portfolio project that pulls live prediction-market odds (Polymarket + Kalshi) for the 2026 World Cup, generates independent model probabilities from historical match data, and surfaces where the two disagree (value edges and theoretical cross-platform arbitrage) all with backtesting, an interactive Streamlit dashboard, and a Discord webhooks for live alerts.
+The tournament is over, so this repo reports how the model actually did rather than what it hoped to do.
 
-> **Educational tool. Does not place trades and is not financial or betting advice.** Reads public market data only.
+> **Educational and analytical only. Places no trades and is not financial or betting advice.** Reads public market data.
+
+---
+
+## Results
+
+Predictions were generated from pre-tournament data only, with no lookahead and no mid-tournament adjustment.
+
+| | Result |
+|---|---|
+| **Knockout bracket** | **25 of 31 matches correct (81%)**, champion (Spain) called correctly |
+| **Live match forecasts** | Brier **0.181** across 72 predictions logged in real time during the tournament |
+| **Naive baseline** | Brier 0.222 (uniform 1/3 per outcome) |
+| **Historical backtest** | Brier ~0.19 to 0.21 across six World Cups (2002 to 2022), walk-forward |
+
+The live 2026 score (0.181) landing slightly better than the six-tournament historical range is the useful part: it is out-of-sample evidence the model is not just fit to history.
+
+![2026 knockout bracket: model picks vs actual results](docs/img/bracket.png)
+
+**What this project does not show:** whether the model beats the *market*. Live market-odds capture failed silently for the whole tournament, so every edge and ROI figure here is measured against a flat 1/3 baseline, not real prices. That is an honest null, and it is documented rather than papered over.
+
+📄 **[Read the full write-up](WRITEUP.md)** for the methodology, the ideas that failed, the bugs found in a post-tournament audit, and the limitations.
 
 ---
 
@@ -12,47 +33,16 @@ A portfolio project that pulls live prediction-market odds (Polymarket + Kalshi)
 
 ```bash
 cd wcq
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-python src/data/historical.py        
-python tests/test_smoke.py           
-streamlit run app/streamlit_app.py   
+python src/data/historical.py        # download ~50k historical matches
+python tests/test_smoke.py           # fast sanity checks
+streamlit run app/streamlit_app.py   # launch the dashboard
 ```
 
 ---
 
-## Dashboard
-
-Six tabs — all live:
-
-| Tab | What's in it |
-|-----|-------------|
-| Live markets | Raw Polymarket + Kalshi prices; Kalshi round-survival pivot table |
-| Model forecast | Top-20 Elo ratings; Monte Carlo survival probabilities; group tables |
-| Edge detection | Model vs market edges (bar + scatter); Kalshi round-label remapping applied |
-| Survival surface | SVI-style survival curves per team across tournament rounds |
-| Backtest | Six historical WC backtests (2002–2022); 2026 forward simulation with Kelly staking histogram |
-| Findings | Brier/hit-rate summary; 5 key findings; expected 2026 knockout bracket |
-
-
-## Discord Bot
-
-A companion bot posts automated alerts to a private Discord server:
-
-| Notification | When | Channel |
-|---|---|---|
-| Daily digest | 07:00 UTC | `#daily-post` |
-| Pre-match briefing | ~1hr before kickoff | `#pre-match` |
-| Post-match scorecard | 10–90 min after full time | `#post-match` |
-| Paper bet placed / P&L | Alongside pre/post-match | `#paper-trading` |
-| Live edge alert | During match, edge > 6% | `#live-alerts` |
-| Cross-platform spread | During match, Poly vs Kalshi > 4% | `#live-alerts` |
-
-**Deployment:** GitHub Actions (3 cron jobs) + Railway (always-on live poller). See [DEPLOY.md](wcq/DEPLOY.md).
-
----
-
-## Architecture
+## How it works
 
 ```
 results.csv (50k matches)          Polymarket / Kalshi (live odds)
@@ -74,48 +64,85 @@ svi_surface.py (survival curves)           |
               src/bot/ (Discord notification layer)
 ```
 
-| File | Job |
-|------|-----|
-| `config.py` | Shared paths, API endpoints, model knobs |
-| `src/data/historical.py` | ~50k international results (1872→present), cleaned |
-| `src/data/markets.py` | Polymarket + Kalshi price fetchers (public, graceful fallback) |
-| `src/models/elo.py` | Elo ratings replayed over full history |
-| `src/models/match_model.py` | Elo → win/draw/loss probabilities |
-| `src/models/tournament.py` | 20k-simulation 48-team bracket Monte Carlo |
-| `src/models/svi_surface.py` | SVI-style no-arbitrage survival surface |
-| `src/markets/implied.py` | Price → implied prob, de-vig, overround |
-| `src/markets/edges.py` | Model vs market edges, Kelly sizing, arb flags |
-| `src/backtest/engine.py` | Staking sim, ROI, hit rate, Brier calibration |
-| `src/viz/charts.py` | Plotly charts (3D surface, edge bars, calibration scatter) |
-| `app/streamlit_app.py` | Dashboard (6 tabs) |
-| `src/bot/` | Discord bot modules (notify, storage, poller, paper trader, …) |
-| `jobs/` | GitHub Actions job scripts (digest, pre-match, post-match) |
+**Model details**
+
+- **Elo:** replayed over every international match from 1872 to present, 5% annual mean-reversion, 5-tier tournament K-weighting (World Cup finals K=60 down to friendlies K=20).
+- **Draw model:** `P(draw | Δelo) = draw_base × exp(-|Δelo| / scale)`, fit by maximum likelihood on ~21k competitive matches rather than hardcoded.
+- **Confederation offsets:** per-confederation Elo corrections fit by MLE on cross-confederation results, correcting a real bias where CONCACAF teams were overrated against UEFA and CONMEBOL opposition. See [WRITEUP.md](WRITEUP.md) sections 1 to 4.
+- **Monte Carlo:** 20,000 simulations of the 48-team bracket for round-by-round survival probabilities.
+
+**Methodology guarantees**
+
+- Elo for any backtested tournament is trained strictly on matches before that tournament's start date.
+- Fitted parameters (confederation offsets, goal-difference weight) come only from pre-cutoff data.
+- Both guarantees are enforced by tests in [`wcq/tests/test_no_lookahead.py`](wcq/tests/test_no_lookahead.py), including a regression test for a lookahead bug found and fixed in a post-tournament audit.
 
 ---
 
-## Key model details
+## Dashboard
 
-- **Elo**: trained on all matches from 1872 → present; 5% annual mean-reversion; 5-tier K-weighting (WC finals K=60 → friendlies K=20)
-- **Draw model**: `P(draw|Δelo) = draw_base × exp(-|Δelo|/scale)`, MLE-fitted; params in `data/draw_params.json`
-- **Monte Carlo**: 20,000 simulations of the 48-team 2026 bracket
+| Tab | Contents |
+|-----|----------|
+| Live markets | Polymarket + Kalshi prices, Kalshi round-survival pivot |
+| Model forecast | Top-20 Elo ratings, Monte Carlo survival probabilities, group tables |
+| Edge detection | Model vs market edges, with Kalshi round-label remapping |
+| Survival surface | SVI-style survival curves per team across rounds |
+| Backtest | Six historical World Cup backtests (2002 to 2022), 2026 forward simulation |
+| Findings | Brier/hit-rate summary, key findings, real 2026 bracket vs actual results |
+
+## Discord bot
+
+Posts automated alerts to a private server. Deployed on GitHub Actions (scheduled jobs) plus Railway (always-on live poller). See [DEPLOY.md](wcq/DEPLOY.md).
+
+| Notification | When |
+|---|---|
+| Daily digest | 07:00 UTC |
+| Pre-match briefing | ~1 hour before kickoff |
+| Post-match scorecard | 10 to 90 min after full time |
+| Paper bet placed / P&L | Alongside pre/post-match |
+| Live edge alert | During match, edge > 6% |
+| Cross-platform spread | During match, Polymarket vs Kalshi > 4% |
+
+---
+
+## Repo layout
+
+| Path | Job |
+|------|-----|
+| `wcq/config.py` | Shared paths, API endpoints, model knobs |
+| `wcq/src/data/` | Historical results loader, market price fetchers |
+| `wcq/src/models/` | Elo, match model, tournament MC, confederations, SVI surface |
+| `wcq/src/markets/` | Implied probabilities, de-vig, edges, Kelly sizing |
+| `wcq/src/backtest/engine.py` | Walk-forward backtest, Brier scoring, staking sim |
+| `wcq/src/bot/` | Discord bot (storage, notify, poller, paper trader, results) |
+| `wcq/jobs/` | Scheduled job scripts (digest, pre-match, post-match, backfill) |
+| `wcq/app/streamlit_app.py` | Dashboard |
+| `wcq/tests/` | Smoke tests and no-lookahead guarantees |
+| `wcq/run_significance_test.py` | Bootstrap significance test for the model corrections |
+
+---
 
 ## How the SVI framing transfers
 
-Options SVI fits a smooth, low-parameter, no-arbitrage curve to sparse market quotes. We reuse the *methodology*, not the literal equation:
+Options SVI fits a smooth, low-parameter, no-arbitrage curve to sparse market quotes. This project reuses the *methodology*, not the equation:
 
 | Options world | This project |
 |---|---|
 | Maturity axis | Tournament round depth (group → champion) |
 | Implied-vol surface | P(team survives to that round) |
-| Butterfly no-arb | Per-round survival probs form a valid distribution |
+| Butterfly no-arb | Per-round survival probabilities form a valid distribution |
 | Calendar no-arb | Survival monotone non-increasing in round depth |
 
-The SVI hyperbola is tuned to vol smiles, so we borrow the approach (smooth + no-arb-constrained + market-calibrated), not the formula. See `src/models/svi_surface.py`.
+The SVI hyperbola is tuned to volatility smiles, so the approach transfers (smooth, no-arb-constrained, market-calibrated) but the formula does not. See `wcq/src/models/svi_surface.py`.
 
 ---
 
-## Data & legal notes
+## Data and legal notes
 
 - Historical data: [martj42 international-results dataset](https://github.com/martj42/international_results) (public, no auth)
-- Markets: Polymarket Gamma API + Kalshi public endpoints, read-only, no API key required
-- US users: Polymarket restricts US access and Kalshi is CFTC-regulated; this project only reads public prices and simulates
+- Markets: Polymarket Gamma API and Kalshi public endpoints, read-only, no API key
+- Polymarket restricts US access and Kalshi is CFTC-regulated. This project only reads public prices and simulates.
+
+## License
+
+[MIT](LICENSE)

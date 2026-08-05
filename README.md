@@ -1,5 +1,8 @@
 # World Cup Quant Dashboard
 
+[![Tests](https://github.com/yousae/World-Cup-MVP/actions/workflows/tests.yml/badge.svg)](https://github.com/yousae/World-Cup-MVP/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 An Elo-based forecasting model for the 2026 FIFA World Cup, with a Monte Carlo tournament simulator, a six-tournament walk-forward backtest, a live Discord bot, and a Streamlit dashboard.
 
 The tournament is over, so this repo reports how the model actually did rather than what it hoped to do.
@@ -67,7 +70,7 @@ svi_surface.py (survival curves)           |
 **Model details**
 
 - **Elo:** replayed over every international match from 1872 to present, 5% annual mean-reversion, 5-tier tournament K-weighting (World Cup finals K=60 down to friendlies K=20).
-- **Draw model:** `P(draw | Δelo) = draw_base × exp(-|Δelo| / scale)`, fit by maximum likelihood on ~21k competitive matches rather than hardcoded.
+- **Draw model:** `P(draw | Δelo) = draw_base × exp(-|Δelo| / scale)`. Ships with `draw_base=0.28, scale=400`, and every number reported above was produced with those values, so a clean clone reproduces them exactly. The parameters can also be MLE-calibrated (`python src/models/match_model.py`, or the dashboard's sidebar button), which fits `draw_base≈0.313, scale≈319` on ~21k competitive matches since 1990. That fitted file is deliberately **not** committed: it is fit on the full match history, so loading it by default would mean the backtests and the 2026 bracket ran on parameters estimated partly from the results they are scored against. The calibration is a reported finding, not the configuration behind the headline numbers.
 - **Confederation offsets:** per-confederation Elo corrections fit by MLE on cross-confederation results, correcting a real bias where CONCACAF teams were overrated against UEFA and CONMEBOL opposition. See [WRITEUP.md](WRITEUP.md) sections 1 to 4.
 - **Monte Carlo:** 20,000 simulations of the 48-team bracket for round-by-round survival probabilities.
 

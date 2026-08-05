@@ -1,0 +1,37 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: wcq/requirements.txt
+
+      - name: Install dependencies
+        working-directory: wcq
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # No-lookahead tests are fully offline (synthetic fixtures). Smoke tests
+      # pull the martj42 results CSV once, because importing the dashboard
+      # module builds Elo at import time; verified to pass from a cold cache.
+      # Neither suite touches the Polymarket or Kalshi APIs.
+      - name: No-lookahead guarantees
+        working-directory: wcq
+        run: python tests/test_no_lookahead.py
+
+      - name: Smoke tests
+        working-directory: wcq
+        run: python tests/test_smoke.py

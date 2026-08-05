@@ -1102,12 +1102,15 @@ indicating that the *relative ranking* of outcome probabilities is robust even
 when absolute calibration fluctuates in a 64-match sample.
 
 **3. Draw model: calibration matters**
-Maximum-likelihood estimation on 21,447 competitive matches (1990–present) yields
-`draw_base = 0.313` which is significantly higher than the conventional 0.28 assumption
-and is accompanied by a faster decay constant (`scale = 318` vs 400). Draws are structurally more
+Maximum-likelihood estimation on ~21.5k competitive matches (1990–present) yields
+`draw_base ≈ 0.313`, significantly higher than the conventional 0.28 assumption,
+with a faster decay constant (`scale ≈ 319` vs 400). Draws are structurally more
 likely at equal Elo strength than the literature assumes, but Elo differentiation
 compresses that advantage more quickly than a simple exponential with scale = 400
-would suggest.
+would suggest. Note this is a *finding from a calibration run*, not the setting
+behind the numbers on this page: that fit uses the full match history, so loading
+it by default would leak those tournaments' own results into the backtests scoring
+them. Unless you calibrate from the sidebar, the model runs on 0.28 / 400.
 
 **4. National-team mean-reversion converges slowly**
 The 5 % annual reversion rate that produces calibrated ratings here is 4–6× slower

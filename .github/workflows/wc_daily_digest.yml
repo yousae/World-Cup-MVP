@@ -9,6 +9,10 @@ on:
 
 jobs:
   daily-digest:
+    # Bot jobs only run on the upstream repo, which holds the Discord
+    # webhook secrets. Without this they fail on every fork and clutter
+    # its Actions tab with red X's.
+    if: github.repository == 'novaa1351/World-Cup-MVP'
     runs-on: ubuntu-latest
     permissions:
       contents: write

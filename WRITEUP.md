@@ -24,6 +24,8 @@ During the 2026 World Cup I found and fixed a real, measurable bias in the proje
 
 This document walks through the problem, the dead ends, the fix, and the evidence for and against it, including the parts that didn't work out as cleanly as I'd have liked.
 
+**A note on tooling.** The modelling work in sections 1 through 12 is mine. For the post-tournament audit and cleanup in sections 13 through 15, I used an AI assistant as a debugging and implementation tool: I set the scope, decided what was worth fixing and in what order, and reviewed and verified every change against the data before accepting it, but the assistant did a lot of the diagnosis and wrote much of that code. I would rather state that plainly than have it be a question. The results in this document are reproducible from the repo either way, which is the point of reporting them the way I have.
+
 ---
 
 ## 1. The problem
@@ -136,7 +138,7 @@ This is the result I'm proudest of: a real, falsifiable, no-lookahead prediction
 
 ## 13. Independent validation pass
 
-After the tournament wrapped, I ran the project through a quant-style validation pass (leakage audit, baseline checks, a live-versus-backtest comparison) to stress-test all of this the way a real quant shop would.
+After the tournament wrapped, I ran the project through a quant-style validation pass (leakage audit, baseline checks, a live-versus-backtest comparison) to stress-test all of this the way a real quant shop would. This section and the two after it are the AI-assisted work described in the note at the top.
 
 The historical backtest (2002 to 2022, walk-forward, no lookahead in the Elo training) reports a Brier score around 0.20, and scoring the actual 2026 live predictions against real outcomes (72 of the 100 logged predictions matched up cleanly to real results, since the project never scored them itself) comes in a bit better at 0.181, with a 64% hit rate, which lines up with the historical range. That's a good sign the model isn't overfit to the past. But the "beats the market" claim still hasn't actually been tested: the live market-odds logging silently failed for the whole tournament (see section 9), so every edge and ROI number in this project is measured against a flat, equal-odds strawman instead of real prices. I also found a small lookahead bug in how the "full model" comparison in section 7 fits its goal-difference weight. The honest summary at the time was that the forecasting side held up well out of sample, but the market-comparison side, the part that would actually make this a trading thesis instead of just a forecasting exercise, still didn't exist, and the "72 of 100 matched" number was itself hiding bugs I hadn't found yet. Section 14 below is the follow-up where I went back and actually fixed what this section found.
 

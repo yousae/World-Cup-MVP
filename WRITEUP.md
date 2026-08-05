@@ -122,8 +122,9 @@ This is the result I'm proudest of: a real, falsifiable, no-lookahead prediction
 
 - The dashboard's live Elo ratings (`load_elo()`) apply both the confederation offset and the goal-diff correction by default now.
 - The Findings tab's bracket diagram shows the model's real, live 2026 predictions against actual results (using the project's existing Plotly bracket renderer), with a live accuracy metric, replacing the old pre-tournament placeholder bracket.
-- A new smoke test covers the forward-simulation code path, which had no test coverage before.
+- A new smoke test covers the forward-simulation code path, which had no test coverage before, and `tests/test_no_lookahead.py` (added later, see section 14) covers the walk-forward guarantees themselves.
 - I also found and fixed a data-freshness bug: the historical results loader was silently serving a stale, two-week-old cached file even on re-run, because it only re-downloads when no local file exists. Had to call `download_results(force=True)` to actually pull the complete, final tournament data.
+- The bracket chart's text colour is now derived from each box's fill rather than hardcoded, which fixed the tournament favourite's name being invisible (section 15).
 
 ## 12. Known limitations
 
@@ -157,6 +158,18 @@ Section 13 found a bunch of real problems and stopped at describing them. This s
 
 **Repo housekeeping.** Deleted three branches (`add-smoke-test-coverage`, `elo-current-wc-boost`, `elo-recency-weighting`) from the shared repo that were fully merged into `main` with zero unique commits left.
 
-## 15. Tools and methods used
+## 15. Presentation pass, and a visualization bug I only found by looking at it
+
+The last round was about making the repo readable to someone landing on it cold, and it turned up one more real bug.
+
+**The bracket chart was hiding the champion's name.** While exporting a static version of the bracket for the README, I noticed Spain's box was blank apart from the trophy badge. The cause: winner boxes are filled with a gradient keyed to each team's Monte Carlo champion probability, running from pale blue up to deep blue, while the winner *text* colour was a single hardcoded dark blue (`#0D47A1`). Whichever team had the highest championship probability therefore got the deepest fill, and its name rendered dark-blue-on-dark-blue. In other words the bug reliably hid the name of the single most important team on the chart, which is why it had survived unnoticed: it only ever affected the tournament favourite, and only in the rounds it actually appeared in. Fixed by computing the text colour from the fill's WCAG relative luminance and flipping to white past the standard 0.5 threshold, so contrast holds at both ends of the gradient in light and dark mode. The champion-probability badge had a related problem: it was positioned at a fixed offset in *data* coordinates below the team name while its font size was in *points*, so how far below the name it landed depended on canvas size, and at smaller sizes it drifted on top of the name. Moved it inline. Both of these were live in the dashboard, not artifacts of the export.
+
+The general lesson I took from it: I had been reading this chart in the app for weeks without noticing, because I already knew which team was supposed to be in that box and my eye filled it in. Rendering it in a different context, at a different size, is what made it visible.
+
+**README rewritten around the result.** The old README described a tournament that hadn't happened yet, never mentioned the bracket accuracy or the live Brier score, and didn't link the write-up at all, so the strongest evidence in the project was invisible to anyone who didn't go digging. It now opens with the numbers (25/31 knockout matches, champion called, live Brier 0.181 against 0.222 for a uniform baseline, with the six-tournament historical range for context), shows the bracket image, and states the market-comparison null explicitly rather than leaving a reader to discover it in section 9.
+
+**Repo cleanup.** Deleted a stale copy of `svi_surface.py` at the repo root that had diverged from the real one in `src/models/` and was imported by nothing, removed superseded scratch scripts (`predict_bracket_from_r32.py` and its `_v2`, `run_market_comparison.py` and its `_v2`) and promoted the surviving `run_market_comparison_v3.py` to the plain name, added a LICENSE and a real `.gitignore`. Added `render_readme_assets.py` so the README image is regenerated from the code rather than being a screenshot that silently goes stale the next time the model changes.
+
+## 16. Tools and methods used
 
 Python (pandas, numpy, scipy.optimize), maximum-likelihood parameter fitting, no-lookahead backtesting methodology, bootstrap significance testing, git/GitHub collaborative workflow (branches, pull requests, code review), SQLite querying, live API integration (Polymarket/Kalshi), Streamlit/Plotly dashboard development.
